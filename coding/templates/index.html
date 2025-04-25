@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Medical Coding AI - CPT Prediction</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 2rem;
+            background: #f8f9fa;
+        }
+        .card {
+            margin-top: 2rem;
+        }
+        .code-box {
+            background: #f1f3f5;
+            padding: 1rem;
+            border-radius: 0.4rem;
+            font-family: monospace;
+        }
+        #loading {
+            display: none;
+            font-weight: bold;
+            margin-top: 1rem;
+            color: #0d6efd;
+        }
+    </style>
+</head>
+<body>
+    <h2 class="text-center">🩺 Medical Coding AI - CPT Code Predictor</h2>
+
+    <!-- Text Form -->
+    <form id="textForm" class="mb-4">
+        <label for="reportText" class="form-label mt-4">Paste Medical Report Text</label>
+        <textarea class="form-control" id="reportText" rows="6" placeholder="Paste report text here..." required></textarea>
+        <button type="submit" class="btn btn-primary mt-2">Predict CPT from Text</button>
+    </form>
+
+    <!-- File Form -->
+    <form id="fileForm" enctype="multipart/form-data">
+        <label for="reportFile" class="form-label mt-4">Upload Medical Report (Image or PDF)</label>
+        <input type="file" class="form-control" id="reportFile" accept=".png,.jpg,.jpeg,.pdf" required />
+        <button type="submit" class="btn btn-success mt-2">Predict CPT from File</button>
+    </form>
+
+    <!-- Loader -->
+    <div id="loading">🔄 Processing... please wait</div>
+
+    <!-- Output -->
+    <div class="card d-none" id="resultCard">
+        <div class="card-body">
+            <h5 class="card-title">🔍 Prediction Results</h5>
+            <div id="resultOutput" class="code-box"></div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        const resultCard = document.getElementById("resultCard");
+        const resultOutput = document.getElementById("resultOutput");
+        const loading = document.getElementById("loading");
+
+        function resetResults() {
+            resultCard.classList.add("d-none");
+            resultOutput.innerHTML = "";
+        }
+
+        function showResults(data) {
+            loading.style.display = "none";
+            resultCard.classList.remove("d-none");
+
+            const formatScore = (score) => {
+                if (score === 0) return "0%";
+                return score ? `${parseFloat(score).toFixed(2)}%` : "N/A";
+            };
+
+            const normalizeArray = (input) =>
+                Array.isArray(input)
+                    ? input
+                    : typeof input === 'object' && input !== null
+                    ? Object.values(input)
+                    : [];
+
+            const cptMatchesArr = normalizeArray(data.top_cpt_matches);
+            const icdMatchesArr = normalizeArray(data.top_icd_matches);
+
+            const cptMatches = cptMatchesArr.length && cptMatchesArr[0].code !== "N/A"
+                ? `<ul>${cptMatchesArr.map(match =>
+                    `<li><strong>${match.code}</strong> - ${match.description} 
+                    (<span class="text-success">${formatScore(match.score)}</span>)</li>`).join("")}</ul>`
+                : "<em>No CPT top matches found.</em>";
+
+            const icdMatches = icdMatchesArr.length && icdMatchesArr[0].code !== "N/A"
+                ? `<ul>${icdMatchesArr.map(match =>
+                    `<li><strong>${match.code}</strong> - ${match.description} 
+                    (<span class="text-primary">${formatScore(match.score)}</span>)</li>`).join("")}</ul>`
+                : "<em>No ICD-10 top matches found.</em>";
+
+            resultOutput.innerHTML = `
+                <strong>✅ Predicted CPT Code:</strong><br/> 
+                ${data.cpt_prediction?.code || "N/A"} - ${data.cpt_prediction?.description || "N/A"}
+                <br/><br/>
+                <strong>📋 Top CPT Matches:</strong><br/>
+                ${cptMatches}
+                <hr/>
+                <strong>✅ Predicted ICD-10 Code:</strong><br/>
+                ${data.icd_prediction?.code || "N/A"} - ${data.icd_prediction?.description || "N/A"}
+                <br/><br/>
+                <strong>📋 Top ICD-10 Matches:</strong><br/>
+                ${icdMatches}
+                <hr/>
+                <strong>👤 Patient Info:</strong><br/>
+                <pre>${JSON.stringify(data.patient_data || {}, null, 2)}</pre>
+            `;
+        }
+
+        function showError(error) {
+            loading.style.display = "none";
+            resultCard.classList.remove("d-none");
+            resultOutput.innerHTML = `<div class="text-danger">❌ ${error || "An error occurred."}</div>`;
+        }
+
+        document.getElementById("textForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            resetResults();
+            loading.style.display = "block";
+
+            const text = document.getElementById("reportText").value;
+
+            try {
+                const response = await fetch("/api/predict/text/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showResults(data);
+                } else {
+                    showError(data.error);
+                }
+            } catch (err) {
+                showError("Failed to fetch CPT code from text.");
+            }
+        });
+
+        document.getElementById("fileForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            resetResults();
+            loading.style.display = "block";
+
+            const fileInput = document.getElementById("reportFile");
+            if (!fileInput.files.length) {
+                showError("Please select a file before submitting.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                const response = await fetch("/api/predict/image/", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showResults(data);
+                } else {
+                    showError(data.error);
+                }
+            } catch (err) {
+                showError("Failed to fetch CPT code from file.");
+            }
+        });
+    </script>
+</body>
+</html>
